@@ -16,6 +16,7 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
   const [patientsLoading, setPatientsLoading] = useState(true);
+  const [patientsError, setPatientsError] = useState<string | null>(null);
   
   const [routines, setRoutines] = useState<RoutineItem[]>(() => {
     const saved = localStorage.getItem('mind_routine');
@@ -53,28 +54,43 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
   // Load patients from Firebase when component mounts
   useEffect(() => {
     const caretakerId = localStorage.getItem('mind_caretaker_id');
+    const caretakerEmail = localStorage.getItem('mind_caretaker_email');
+    
+    console.log('[CaretakerDashboard] Component mounted, checking auth...', { caretakerId, caretakerEmail });
+    
     if (!caretakerId) {
+      console.warn('[CaretakerDashboard] No caretakerId in localStorage');
       setPatientsLoading(false);
+      setPatientsError('Not authenticated. Please log in as caretaker.');
       return;
     }
 
     setPatientsLoading(true);
+    setPatientsError(null);
+    
+    console.log('[CaretakerDashboard] Setting up listener for caretakerId:', caretakerId);
     
     // Set up real-time listener for patients
     const unsubscribe = authService.listenToCaretakerPatients(
       caretakerId,
       (patientList) => {
+        console.log('[CaretakerDashboard] Patients loaded:', patientList.length, patientList);
         setPatients(patientList);
         // Auto-select first patient if available
         if (patientList.length > 0 && !selectedPatientId) {
-          setSelectedPatientId(patientList[0].id || patientList[0].uid);
+          const firstPatientId = patientList[0].id || patientList[0].uid;
+          console.log('[CaretakerDashboard] Auto-selecting first patient:', firstPatientId);
+          setSelectedPatientId(firstPatientId);
         }
         setPatientsLoading(false);
       }
     );
 
     return () => {
-      if (unsubscribe) unsubscribe();
+      if (unsubscribe) {
+        console.log('[CaretakerDashboard] Cleaning up listener');
+        unsubscribe();
+      }
     };
   }, []);
 
@@ -253,7 +269,36 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
         </motion.div>
       ) : (
         <div className="card p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-4 border-amber-300">
-          <p className="font-black text-amber-900">No patients linked yet. Patients will appear here once they enter your email during their setup.</p>
+          <div className="space-y-3">
+            <p className="font-black text-amber-900 text-lg">⚠️ No patients linked yet</p>
+            <p className="font-bold text-amber-800">Patients will appear here once they enter your email during their setup.</p>
+            
+            {/* Debug Info */}
+            <div className="mt-4 pt-4 border-t border-amber-300">
+              <details className="cursor-pointer">
+                <summary className="font-bold text-amber-900 select-none">🔍 Debug Information</summary>
+                <div className="mt-3 p-3 bg-white rounded-lg border border-amber-200 font-mono text-sm space-y-2 text-slate-700">
+                  <div><strong>Caretaker ID:</strong> {localStorage.getItem('mind_caretaker_id') || 'NOT SET'}</div>
+                  <div><strong>Caretaker Email:</strong> {localStorage.getItem('mind_caretaker_email') || 'NOT SET'}</div>
+                  <div><strong>Patients Found:</strong> {patients.length}</div>
+                  <div><strong>Loading:</strong> {patientsLoading ? 'Yes' : 'No'}</div>
+                  {patientsError && <div className="text-red-600"><strong>Error:</strong> {patientsError}</div>}
+                  <hr className="my-2" />
+                  <div className="text-xs text-slate-600">
+                    <p><strong>Steps to debug:</strong></p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Open Browser DevTools (F12)</li>
+                      <li>Go to Console tab</li>
+                      <li>Look for messages starting with [CaretakerDashboard] or [listenToCaretakerPatients]</li>
+                      <li>Check if caretaker email matches patient's entry exactly</li>
+                      <li>Make sure patient entered YOUR email address</li>
+                      <li>Firebase Rules must be published (check Firebase Console)</li>
+                    </ol>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </div>
         </div>
       )}
       {/* Missed Routines Alert & Management */}

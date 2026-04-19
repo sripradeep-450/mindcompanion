@@ -47,7 +47,9 @@ const PatientLoginPage: React.FC<Props> = ({ onBack, onSuccess }) => {
       // Generate device-based patient ID
       const patientId = 'device-patient-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
-      // Try to sync to Firebase, but don't fail if it doesn't work
+      console.log('[PatientLogin] Attempting to link patient to caretaker:', { patientId, caretakerEmail });
+
+      // TRY to sync to Firebase, but provide detailed error message if it fails
       try {
         const patientProfile = await authService.linkDevicePatientToCaretaker(
           {
@@ -61,31 +63,16 @@ const PatientLoginPage: React.FC<Props> = ({ onBack, onSuccess }) => {
           patientId
         );
 
+        console.log('[PatientLogin] SUCCESS: Patient linked to Firebase!', patientProfile);
         localStorage.setItem('mind_patient_profile', JSON.stringify(patientProfile));
         localStorage.setItem('mind_patient_id', patientId);
         localStorage.setItem('mind_caretaker_email', caretakerEmail);
         
         onSuccess(patientProfile);
       } catch (firebaseErr: any) {
-        // If Firebase fails, still allow local setup (fallback mode)
-        console.warn('Firebase sync failed, using local-only mode:', firebaseErr);
-        
-        const patientProfile: PatientProfile = {
-          uid: patientId,
-          name: patientInfo.name,
-          age: patientInfo.age,
-          gender: patientInfo.gender,
-          bio: patientInfo.bio,
-          caretakerId: '',
-          caretakerEmail,
-          linkedAt: Date.now()
-        };
-
-        localStorage.setItem('mind_patient_profile', JSON.stringify(patientProfile));
-        localStorage.setItem('mind_patient_id', patientId);
-        localStorage.setItem('mind_caretaker_email', caretakerEmail);
-        
-        onSuccess(patientProfile);
+        // Firebase link failed - this is critical, don't proceed with local-only
+        console.error('[PatientLogin] CRITICAL ERROR - Firebase link failed:', firebaseErr);
+        setError(firebaseErr.message || 'Failed to link to caretaker. Make sure your caretaker has already logged in with that email address.');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to link caretaker');

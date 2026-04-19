@@ -167,17 +167,24 @@ export const authService = {
     patientId: string
   ): Promise<PatientProfile> {
     try {
+      console.log('[linkDevicePatientToCaretaker] Starting patient link...', { patientId, caretakerEmail });
+      
       // Find caretaker by email
       const caretakersRef = collection(db, 'caretakers');
       const q = query(caretakersRef, where('email', '==', caretakerEmail));
       const querySnapshot = await getDocs(q);
       
+      console.log('[linkDevicePatientToCaretaker] Caretaker query result:', { found: !querySnapshot.empty, count: querySnapshot.size });
+      
       if (querySnapshot.empty) {
-        throw new Error(`Caretaker with email ${caretakerEmail} not found. Caretaker must sign in first.`);
+        const errorMsg = `Caretaker with email ${caretakerEmail} not found. Caretaker must sign in first.`;
+        console.error('[linkDevicePatientToCaretaker] ERROR:', errorMsg);
+        throw new Error(errorMsg);
       }
 
       const caretakerDoc = querySnapshot.docs[0];
       const caretakerId = caretakerDoc.id;
+      console.log('[linkDevicePatientToCaretaker] Found caretaker:', { caretakerId, caretakerEmail });
       
       // Create patient profile with caretaker link
       const patientRef = doc(db, 'patients', patientId);
@@ -185,22 +192,28 @@ export const authService = {
         ...patientData,
         uid: patientId,
         caretakerId,
+        caretakerEmail,
         linkedAt: Date.now()
       };
       
+      console.log('[linkDevicePatientToCaretaker] Saving patient profile:', patientProfile);
       await setDoc(patientRef, patientProfile, { merge: true });
+      console.log('[linkDevicePatientToCaretaker] Patient profile saved to /patients/{patientId}');
       
       // Add patient to caretaker's list
       const caretakerPatientsRef = collection(db, 'caretakers', caretakerId, 'patients');
       await setDoc(doc(caretakerPatientsRef, patientId), {
         patientId,
         name: patientData.name,
+        email: caretakerEmail,
         addedAt: Date.now()
       });
+      console.log('[linkDevicePatientToCaretaker] Patient reference added to caretaker subcollection');
+      console.log('[linkDevicePatientToCaretaker] SUCCESS: Patient linked to caretaker!');
       
       return patientProfile;
     } catch (error) {
-      console.error("Device Patient Linking Error:", error);
+      console.error("[Device Patient Linking Error]:", error);
       throw error;
     }
   },
@@ -219,13 +232,17 @@ export const authService = {
     callback: (patients: PatientProfile[]) => void
   ) {
     try {
+      console.log('[listenToCaretakerPatients] Setting up listener for caretakerId:', caretakerId);
       const patientsRef = collection(db, 'caretakers', caretakerId, 'patients');
       
       // First get patient refs, then get their full profile data
       const unsubscribe = onSnapshot(patientsRef, async (snapshot) => {
+        console.log('[listenToCaretakerPatients] Snapshot received, count:', snapshot.size);
         const patientIds = snapshot.docs.map(doc => doc.data().patientId);
+        console.log('[listenToCaretakerPatients] Patient IDs found:', patientIds);
         
         if (patientIds.length === 0) {
+          console.log('[listenToCaretakerPatients] No patients found, returning empty list');
           callback([]);
           return;
         }
@@ -233,19 +250,29 @@ export const authService = {
         // Get full patient profiles from patients collection
         const patientProfiles: PatientProfile[] = [];
         for (const patientId of patientIds) {
-          const patientRef = doc(db, 'patients', patientId);
-          const patientDoc = await getDoc(patientRef);
-          if (patientDoc.exists()) {
-            patientProfiles.push({ id: patientId, ...patientDoc.data() } as PatientProfile & { id: string });
+          try {
+            const patientRef = doc(db, 'patients', patientId);
+            const patientDoc = await getDoc(patientRef);
+            if (patientDoc.exists()) {
+              console.log('[listenToCaretakerPatients] Loaded patient:', patientId, patientDoc.data());
+              patientProfiles.push({ id: patientId, ...patientDoc.data() } as PatientProfile & { id: string });
+            } else {
+              console.warn('[listenToCaretakerPatients] Patient document does not exist:', patientId);
+            }
+          } catch (err) {
+            console.error('[listenToCaretakerPatients] Error loading patient:', patientId, err);
           }
         }
         
+        console.log('[listenToCaretakerPatients] Returning profiles count:', patientProfiles.length);
         callback(patientProfiles);
+      }, (error) => {
+        console.error('[listenToCaretakerPatients] Snapshot error:', error);
       });
 
       return unsubscribe;
     } catch (error) {
-      console.error('Error listening to caretaker patients:', error);
+      console.error('[listenToCaretakerPatients] Setup error:', error);
       return () => {};
     }
   },
