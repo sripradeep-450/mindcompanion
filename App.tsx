@@ -11,6 +11,7 @@ import PatientLoginPage from './components/PatientLoginPage';
 import CaretakerLoginPage from './components/CaretakerLoginPage';
 import { bluetoothService } from './services/bluetoothService';
 import { authService, PatientProfile, CaretakerProfile } from './services/authService';
+import { routineCheckerService } from './services/routineCheckerService';
 import { User, Brain, Heart, Calendar, MessageSquare, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -47,6 +48,31 @@ const App: React.FC = () => {
       setAuthState('authenticated');
     }
   }, []);
+
+  // Start routine checker for caretaker
+  useEffect(() => {
+    if (role === 'caretaker') {
+      const caretakerId = localStorage.getItem('mind_caretaker_id');
+      if (!caretakerId) return;
+
+      // Set up real-time listener to get patients and check routines
+      const unsubscribe = authService.listenToCaretakerPatients(
+        caretakerId,
+        (patients) => {
+          // Start routine checker with the current patients list
+          if (patients.length > 0) {
+            const stopChecker = routineCheckerService.startRoutineChecker(caretakerId, patients);
+            // Return cleanup function
+            return () => stopChecker();
+          }
+        }
+      );
+
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    }
+  }, [role]);
 
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);

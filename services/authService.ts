@@ -13,7 +13,8 @@ import {
   query, 
   where, 
   getDocs,
-  updateDoc 
+  updateDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { auth, db } from './firebaseConfig';
 
@@ -210,5 +211,65 @@ export const authService = {
   },
 
   // Get current user
-  getCurrentUser: () => auth.currentUser
+  getCurrentUser: () => auth.currentUser,
+
+  // Real-time listener for caretaker's patients
+  listenToCaretakerPatients(
+    caretakerId: string,
+    callback: (patients: PatientProfile[]) => void
+  ) {
+    try {
+      const patientsRef = collection(db, 'caretakers', caretakerId, 'patients');
+      
+      // First get patient refs, then get their full profile data
+      const unsubscribe = onSnapshot(patientsRef, async (snapshot) => {
+        const patientIds = snapshot.docs.map(doc => doc.data().patientId);
+        
+        if (patientIds.length === 0) {
+          callback([]);
+          return;
+        }
+        
+        // Get full patient profiles from patients collection
+        const patientProfiles: PatientProfile[] = [];
+        for (const patientId of patientIds) {
+          const patientRef = doc(db, 'patients', patientId);
+          const patientDoc = await getDoc(patientRef);
+          if (patientDoc.exists()) {
+            patientProfiles.push({ id: patientId, ...patientDoc.data() } as PatientProfile & { id: string });
+          }
+        }
+        
+        callback(patientProfiles);
+      });
+
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error listening to caretaker patients:', error);
+      return () => {};
+    }
+  },
+
+  // Real-time listener for single patient profile
+  listenToPatientProfile(
+    patientId: string,
+    callback: (patient: PatientProfile | null) => void
+  ) {
+    try {
+      const patientRef = doc(db, 'patients', patientId);
+      
+      const unsubscribe = onSnapshot(patientRef, (snapshot) => {
+        if (snapshot.exists()) {
+          callback({ id: patientId, ...snapshot.data() } as PatientProfile & { id: string });
+        } else {
+          callback(null);
+        }
+      });
+
+      return unsubscribe;
+    } catch (error) {
+      console.error('Error listening to patient profile:', error);
+      return () => {};
+    }
+  }
 };

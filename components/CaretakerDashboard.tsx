@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile, RoutineItem, FamilyPhoto } from '../types';
-import { Plus, Trash2, Image as ImageIcon, Calendar, User, Save, Sparkles, X, Tag as TagIcon, Check, Bell, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Calendar, User, Save, Sparkles, X, Tag as TagIcon, Check, Bell, AlertCircle, ChevronDown, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { notificationService, MissedRoutineNotification } from '../services/notificationService';
+import { authService, PatientProfile } from '../services/authService';
 
 interface Props {
   profile: UserProfile;
@@ -11,6 +12,11 @@ interface Props {
 
 const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
   const [localProfile, setLocalProfile] = useState(profile);
+  const [patients, setPatients] = useState<(PatientProfile & { id: string })[]>([]);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [selectedPatient, setSelectedPatient] = useState<PatientProfile | null>(null);
+  const [patientsLoading, setPatientsLoading] = useState(true);
+  
   const [routines, setRoutines] = useState<RoutineItem[]>(() => {
     const saved = localStorage.getItem('mind_routine');
     return saved ? JSON.parse(saved) : [];
@@ -43,6 +49,60 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
   useEffect(() => {
     localStorage.setItem('mind_family_photos', JSON.stringify(photos));
   }, [photos]);
+
+  // Load patients from Firebase when component mounts
+  useEffect(() => {
+    const caretakerId = localStorage.getItem('mind_caretaker_id');
+    if (!caretakerId) {
+      setPatientsLoading(false);
+      return;
+    }
+
+    setPatientsLoading(true);
+    
+    // Set up real-time listener for patients
+    const unsubscribe = authService.listenToCaretakerPatients(
+      caretakerId,
+      (patientList) => {
+        setPatients(patientList);
+        // Auto-select first patient if available
+        if (patientList.length > 0 && !selectedPatientId) {
+          setSelectedPatientId(patientList[0].id || patientList[0].uid);
+        }
+        setPatientsLoading(false);
+      }
+    );
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Load selected patient's full profile
+  useEffect(() => {
+    if (!selectedPatientId) {
+      setSelectedPatient(null);
+      return;
+    }
+
+    // First check if we have it in the patients list
+    const foundPatient = patients.find(p => (p.id || p.uid) === selectedPatientId);
+    if (foundPatient) {
+      setSelectedPatient(foundPatient);
+    } else {
+      // Otherwise, listen to real-time updates
+      const unsubscribe = authService.listenToPatientProfile(
+        selectedPatientId,
+        (patient) => {
+          setSelectedPatient(patient);
+        }
+      );
+
+      return () => {
+        if (unsubscribe) unsubscribe();
+      };
+    }
+  }, [selectedPatientId, patients]);
 
   // Listen for missed routine notifications from Firestore
   useEffect(() => {
@@ -137,6 +197,65 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Patient Selection */}
+      {patientsLoading ? (
+        <div className="card p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-4 border-blue-300 flex items-center justify-center gap-3">
+          <Loader2 className="animate-spin text-blue-600" size={24} />
+          <p className="font-black text-blue-900">Loading patient list...</p>
+        </div>
+      ) : patients.length > 0 ? (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card p-6 bg-gradient-to-r from-blue-50 to-indigo-50 border-4 border-blue-300"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-black text-blue-900">Select Patient</h3>
+            <div className="relative">
+              <select
+                value={selectedPatientId || ''}
+                onChange={(e) => setSelectedPatientId(e.target.value)}
+                className="appearance-none p-3 pr-10 rounded-xl border-2 border-blue-400 font-bold focus:outline-none focus:border-blue-600 bg-white cursor-pointer"
+              >
+                <option value="">-- Choose Patient --</option>
+                {patients.map((p) => (
+                  <option key={p.id || p.uid} value={p.id || p.uid}>
+                    {p.name} (Age: {p.age})
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-blue-400 pointer-events-none" size={20} />
+            </div>
+          </div>
+          
+          {selectedPatient && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-6 p-4 bg-white rounded-xl border-2 border-blue-200"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-black text-xl shadow-lg">
+                    {selectedPatient.name?.charAt(0) || 'P'}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">Patient Status</p>
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <div><span className="font-black text-slate-600">Name:</span> <span className="font-bold text-slate-900">{selectedPatient.name}</span></div>
+                  <div><span className="font-black text-slate-600">Age:</span> <span className="font-bold text-slate-900">{selectedPatient.age}</span></div>
+                  <div><span className="font-black text-slate-600">Gender:</span> <span className="font-bold text-slate-900">{selectedPatient.gender}</span></div>
+                  <div><span className="font-black text-slate-600">Bio:</span> <span className="font-bold text-slate-900">{selectedPatient.bio}</span></div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </motion.div>
+      ) : (
+        <div className="card p-6 bg-gradient-to-r from-amber-50 to-orange-50 border-4 border-amber-300">
+          <p className="font-black text-amber-900">No patients linked yet. Patients will appear here once they enter your email during their setup.</p>
+        </div>
+      )}
       {/* Missed Routines Alert & Management */}
       {missedRoutineNotifications.length > 0 && (
         <motion.div
