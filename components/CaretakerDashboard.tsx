@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { UserProfile, RoutineItem, FamilyPhoto } from '../types';
-import { Plus, Trash2, Image as ImageIcon, Calendar, User, Save, Sparkles, X, Tag as TagIcon, Check } from 'lucide-react';
+import { Plus, Trash2, Image as ImageIcon, Calendar, User, Save, Sparkles, X, Tag as TagIcon, Check, Bell, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { notificationService, MissedRoutineNotification } from '../services/notificationService';
 
 interface Props {
   profile: UserProfile;
@@ -19,6 +20,8 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
     const saved = localStorage.getItem('mind_family_photos');
     return saved ? JSON.parse(saved) : [];
   });
+
+  const [missedRoutineNotifications, setMissedRoutineNotifications] = useState<MissedRoutineNotification[]>([]);
 
   const [newRoutine, setNewRoutine] = useState({ 
     title: '', 
@@ -40,6 +43,45 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
   useEffect(() => {
     localStorage.setItem('mind_family_photos', JSON.stringify(photos));
   }, [photos]);
+
+  // Listen for missed routine notifications from Firestore
+  useEffect(() => {
+    const caretakerId = localStorage.getItem('mind_caretaker_id');
+    if (!caretakerId) return;
+
+    try {
+      const unsubscribe = notificationService.listenToNotifications(
+        caretakerId,
+        (notifications) => {
+          setMissedRoutineNotifications(notifications);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.error('Error setting up notification listener:', err);
+    }
+  }, []);
+
+  const handleAcknowledgeNotification = async (notificationId: string) => {
+    try {
+      await notificationService.acknowledgeNotification(notificationId);
+      setMissedRoutineNotifications(prev => 
+        prev.map(n => n.id === notificationId ? { ...n, acknowledged: true } : n)
+      );
+    } catch (err) {
+      console.error('Error acknowledging notification:', err);
+    }
+  };
+
+  const handleDeleteNotification = async (notificationId: string) => {
+    try {
+      await notificationService.deleteNotification(notificationId);
+      setMissedRoutineNotifications(prev => prev.filter(n => n.id !== notificationId));
+    } catch (err) {
+      console.error('Error deleting notification:', err);
+    }
+  };
 
   const saveProfile = () => {
     localStorage.setItem('mind_user_profile', JSON.stringify(localProfile));
@@ -95,6 +137,81 @@ const CaretakerDashboard: React.FC<Props> = ({ profile }) => {
 
   return (
     <div className="space-y-8 pb-20">
+      {/* Missed Routines Alert & Management */}
+      {missedRoutineNotifications.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card p-6 bg-gradient-to-r from-red-50 to-orange-50 border-4 border-red-400"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Bell className="text-red-600 animate-pulse" size={28} />
+            <h2 className="text-2xl font-black text-red-900">
+              ⚠️ {missedRoutineNotifications.filter(n => !n.acknowledged).length} Missed Routine{missedRoutineNotifications.filter(n => !n.acknowledged).length !== 1 ? 's' : ''}
+            </h2>
+          </div>
+
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+            <AnimatePresence>
+              {missedRoutineNotifications.map((notification, idx) => (
+                <motion.div
+                  key={notification.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className={`p-4 rounded-2xl border-2 flex items-start justify-between gap-4 ${
+                    notification.acknowledged
+                      ? 'bg-white border-slate-200'
+                      : 'bg-white border-red-300'
+                  }`}
+                >
+                  <div className="flex-grow flex items-start gap-3">
+                    {!notification.acknowledged && (
+                      <div className="bg-red-100 p-2 rounded-full mt-1">
+                        <AlertCircle className="text-red-600" size={18} />
+                      </div>
+                    )}
+                    <div className="flex-grow">
+                      <p className="font-black text-slate-900">{notification.patientName}</p>
+                      <p className="text-sm font-bold text-slate-600">
+                        Missed <span className="text-red-600">{notification.routineTitle}</span> at {notification.routineTime}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded font-bold inline-block">
+                          {notification.routineType}
+                        </span>
+                      </p>
+                      {notification.acknowledged && (
+                        <p className="text-xs text-emerald-600 font-bold mt-1">✓ Acknowledged</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {!notification.acknowledged && (
+                      <button
+                        onClick={() => handleAcknowledgeNotification(notification.id)}
+                        className="tactile-btn bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 transition-colors"
+                        title="Mark as acknowledged"
+                      >
+                        <Check size={18} />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteNotification(notification.id)}
+                      className="tactile-btn bg-slate-200 text-slate-600 p-2 rounded-lg hover:bg-red-400 hover:text-white transition-colors"
+                      title="Dismiss"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Routine Management */}
         <div className="card p-6 bg-white border-4 border-slate-900">

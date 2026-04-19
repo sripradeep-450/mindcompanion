@@ -44,22 +44,49 @@ const PatientLoginPage: React.FC<Props> = ({ onBack, onSuccess }) => {
     setError('');
 
     try {
-      // For patient device - no authentication needed, just store locally
-      const patientProfile: PatientProfile = {
-        uid: 'local-patient-' + Date.now(),
-        name: patientInfo.name,
-        age: patientInfo.age,
-        gender: patientInfo.gender,
-        bio: patientInfo.bio,
-        caretakerId: '',
-        caretakerEmail,
-        linkedAt: Date.now()
-      };
+      // Generate device-based patient ID
+      const patientId = 'device-patient-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
 
-      localStorage.setItem('mind_patient_profile', JSON.stringify(patientProfile));
-      localStorage.setItem('mind_caretaker_email', caretakerEmail);
-      
-      onSuccess(patientProfile);
+      // Try to sync to Firebase, but don't fail if it doesn't work
+      try {
+        const patientProfile = await authService.linkDevicePatientToCaretaker(
+          {
+            name: patientInfo.name,
+            age: patientInfo.age,
+            gender: patientInfo.gender,
+            bio: patientInfo.bio,
+            caretakerEmail
+          },
+          caretakerEmail,
+          patientId
+        );
+
+        localStorage.setItem('mind_patient_profile', JSON.stringify(patientProfile));
+        localStorage.setItem('mind_patient_id', patientId);
+        localStorage.setItem('mind_caretaker_email', caretakerEmail);
+        
+        onSuccess(patientProfile);
+      } catch (firebaseErr: any) {
+        // If Firebase fails, still allow local setup (fallback mode)
+        console.warn('Firebase sync failed, using local-only mode:', firebaseErr);
+        
+        const patientProfile: PatientProfile = {
+          uid: patientId,
+          name: patientInfo.name,
+          age: patientInfo.age,
+          gender: patientInfo.gender,
+          bio: patientInfo.bio,
+          caretakerId: '',
+          caretakerEmail,
+          linkedAt: Date.now()
+        };
+
+        localStorage.setItem('mind_patient_profile', JSON.stringify(patientProfile));
+        localStorage.setItem('mind_patient_id', patientId);
+        localStorage.setItem('mind_caretaker_email', caretakerEmail);
+        
+        onSuccess(patientProfile);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to link caretaker');
     } finally {

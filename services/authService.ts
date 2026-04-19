@@ -159,6 +159,51 @@ export const authService = {
     }
   },
 
+  // Link device-based patient to caretaker (no authentication required)
+  async linkDevicePatientToCaretaker(
+    patientData: Omit<PatientProfile, 'uid' | 'linkedAt' | 'caretakerId'>,
+    caretakerEmail: string,
+    patientId: string
+  ): Promise<PatientProfile> {
+    try {
+      // Find caretaker by email
+      const caretakersRef = collection(db, 'caretakers');
+      const q = query(caretakersRef, where('email', '==', caretakerEmail));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        throw new Error(`Caretaker with email ${caretakerEmail} not found. Caretaker must sign in first.`);
+      }
+
+      const caretakerDoc = querySnapshot.docs[0];
+      const caretakerId = caretakerDoc.id;
+      
+      // Create patient profile with caretaker link
+      const patientRef = doc(db, 'patients', patientId);
+      const patientProfile: PatientProfile = {
+        ...patientData,
+        uid: patientId,
+        caretakerId,
+        linkedAt: Date.now()
+      };
+      
+      await setDoc(patientRef, patientProfile, { merge: true });
+      
+      // Add patient to caretaker's list
+      const caretakerPatientsRef = collection(db, 'caretakers', caretakerId, 'patients');
+      await setDoc(doc(caretakerPatientsRef, patientId), {
+        patientId,
+        name: patientData.name,
+        addedAt: Date.now()
+      });
+      
+      return patientProfile;
+    } catch (error) {
+      console.error("Device Patient Linking Error:", error);
+      throw error;
+    }
+  },
+
   // Subscribe to auth state
   onAuthStateChanged: (callback: (user: User | null) => void) => {
     return onAuthStateChanged(auth, callback);

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { RoutineItem, UserProfile, AppState } from '../types';
 import { geminiService } from '../services/geminiService';
 import { bluetoothService } from '../services/bluetoothService';
+import { notificationService } from '../services/notificationService';
 import { CheckCircle2, Circle, Clock, Brain, Heart, Sparkles, Calendar } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -27,6 +28,7 @@ const RoutineModule: React.FC<Props> = ({ profile, onNavigate }) => {
   
   const lastNotifiedRef = useRef<string | null>(null);
   const lastTimeRef = useRef<string | null>(null);
+  const missedNotificationsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     localStorage.setItem('mind_routine', JSON.stringify(items));
@@ -77,6 +79,56 @@ const RoutineModule: React.FC<Props> = ({ profile, onNavigate }) => {
 
     return () => clearInterval(interval);
   }, [activeReminder, suggestion]);
+
+  // Check for missed routines and create notifications
+  useEffect(() => {
+    const checkMissedRoutines = async () => {
+      const patientProfile = localStorage.getItem('mind_patient_profile');
+      const caretakerEmail = localStorage.getItem('mind_caretaker_email');
+      
+      if (!patientProfile || !caretakerEmail) return;
+
+      try {
+        const patient = JSON.parse(patientProfile);
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+        const currentTimeInMinutes = currentHour * 60 + currentMinute;
+
+        items.forEach(async (item) => {
+          if (item.completed) return; // Skip completed routines
+
+          const [scheduleHour, scheduleMinute] = item.time.split(':').map(Number);
+          const scheduleTimeInMinutes = scheduleHour * 60 + scheduleMinute;
+          const minutesPast = currentTimeInMinutes - scheduleTimeInMinutes;
+
+          // If routine is more than 5 minutes past scheduled time and not completed
+          if (minutesPast > 5 && minutesPast < 1440 && !missedNotificationsRef.current.has(item.id)) {
+            try {
+              await notificationService.createMissedRoutineNotification(
+                patient.caretakerId || patient.caretakerEmail,
+                patient.uid,
+                patient.name,
+                item.title,
+                item.time,
+                item.type
+              );
+              missedNotificationsRef.current.add(item.id);
+            } catch (err) {
+              console.error('Error creating missed routine notification:', err);
+            }
+          }
+        });
+      } catch (err) {
+        console.error('Error checking missed routines:', err);
+      }
+    };
+
+    const interval = setInterval(checkMissedRoutines, 60000); // Check every minute
+    checkMissedRoutines(); // Check immediately on mount
+    
+    return () => clearInterval(interval);
+  }, [items]);
 
   const toggleComplete = (id: string) => {
     const updated = items.map(item => {
