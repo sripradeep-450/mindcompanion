@@ -1,0 +1,8 @@
+{
+  "name": "MindCompanion - Dementia Care Assistant",
+  "description": "A comprehensive support tool for individuals with dementia featuring a routine manager with alerts, cognitive stimulation games, and a family photo recognition module to help recall loved ones.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
